@@ -8,17 +8,18 @@ export default function Admin() {
   const [authed, setAuthed] = useState(() => sessionStorage.getItem(SESSION_KEY) === '1')
   const [pw, setPw] = useState('')
   const [err, setErr] = useState('')
-  const [leads, setLeads] = useState(() => getLeads())
+  const [leads, setLeads] = useState([])
   const [q, setQ] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', message: '' })
 
+  async function refresh() { setLeads(await getLeads()) }
+  useEffect(() => { refresh() }, [])
   useEffect(() => {
-    const onStorage = () => setLeads(getLeads())
-    window.addEventListener('storage', onStorage)
-    const id = setInterval(onStorage, 1000) // catch same-tab updates
-    return () => { window.removeEventListener('storage', onStorage); clearInterval(id) }
-  }, [])
+    if (!authed) return
+    const id = setInterval(refresh, 2000)
+    return () => clearInterval(id)
+  }, [authed])
 
   const filtered = useMemo(() => {
     if (!q.trim()) return leads
@@ -41,14 +42,15 @@ export default function Admin() {
     setPw('')
   }
 
-  function handleDelete(id) {
+  async function handleDelete(id) {
     if (!confirm('Delete this lead?')) return
-    setLeads(deleteLead(id))
+    const data = await deleteLead(id)
+    setLeads(data)
   }
 
-  function handleClear() {
+  async function handleClear() {
     if (!confirm(`Delete all ${leads.length} leads? This cannot be undone.`)) return
-    clearLeads()
+    await clearLeads()
     setLeads([])
   }
 
@@ -64,11 +66,11 @@ export default function Admin() {
 
   function copy(text) { navigator.clipboard.writeText(text) }
 
-  function handleAdd(e) {
+  async function handleAdd(e) {
     e.preventDefault()
     if (!form.name.trim() || !form.email.trim() || !form.message.trim()) return
-    addLead(form)
-    setLeads(getLeads())
+    await addLead(form)
+    setLeads(await getLeads())
     setForm({ name: '', email: '', message: '' })
     setShowAdd(false)
   }
@@ -190,7 +192,7 @@ export default function Admin() {
             </div>
           </>
         )}
-        <p className="text-xs text-zinc-600 mt-6">Storage: <span className="font-mono">localStorage.admish_leads</span> • Same browser only • Add a backend when you need cross-device / production persistence.</p>
+        <p className="text-xs text-zinc-600 mt-6">Storage: <span className="font-mono">/api/leads → data/leads.json</span> • Centralized — visible from any device • ponytail: ephemeral filesystem, swap to Postgres/DATABASE_URL if you redeploy often</p>
       </div>
     </div>
   )

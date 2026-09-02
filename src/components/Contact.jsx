@@ -5,9 +5,12 @@ export default function Contact() {
   const [submitted, setSubmitted] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', message: '' })
 
-  function handleSubmit(e) {
+  const [sending, setSending] = useState(false)
+  async function handleSubmit(e) {
     e.preventDefault()
-    addLead(form)
+    setSending(true)
+    await addLead(form)
+    setSending(false)
     setSubmitted(true)
   }
 
@@ -117,9 +120,10 @@ export default function Contact() {
               </div>
               <button
                 type="submit"
-                className="w-full bg-brand-400 hover:bg-brand-300 text-black font-semibold py-3 rounded-lg transition-colors"
+                disabled={sending}
+                className="w-full bg-brand-400 hover:bg-brand-300 text-black font-semibold py-3 rounded-lg transition-colors disabled:opacity-60"
               >
-                Send Message
+                {sending ? 'Sending...' : 'Send Message'}
               </button>
             </form>
           )}
