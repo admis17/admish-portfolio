@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import pg from 'pg'
+import nodemailer from 'nodemailer'
 
 const { Pool } = pg
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -85,6 +86,39 @@ async function clearLeadsStore() {
   return []
 }
 
+// --- email alert (ponytail: nodemailer, env-based, no new service needed) ---
+let mailer = null
+function getMailer() {
+  if (mailer) return mailer
+  const host = process.env.SMTP_HOST
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS
+  if (!host || !user || !pass) return null
+  mailer = nodemailer.createTransport({
+    host,
+    port: Number(process.env.SMTP_PORT || 587),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: { user, pass },
+  })
+  return mailer
+}
+
+async function sendLeadAlert(lead) {
+  const to = process.env.ALERT_TO || process.env.SMTP_USER || process.env.EMAIL_USER || 'infoadmish@gmail.com'
+  const m = getMailer()
+  if (!m) { console.log('Email alert skipped: set SMTP_HOST/SMTP_USER/SMTP_PASS to enable'); return }
+  try {
+    await m.sendMail({
+      from: process.env.MAIL_FROM || `"Admish Portfolio" <${process.env.SMTP_USER || process.env.EMAIL_USER}>`,
+      to,
+      subject: `New lead: ${lead.name} <${lead.email}>`,
+      text: `New lead received\n\nName: ${lead.name}\nEmail: ${lead.email}\nDate: ${lead.date}\n\nMessage:\n${lead.message}\n\nView dashboard: /#admin`,
+      html: `<h2>New lead</h2><p><b>Name:</b> ${lead.name}<br><b>Email:</b> <a href="mailto:${lead.email}">${lead.email}</a><br><b>Date:</b> ${lead.date}</p><p><b>Message:</b></p><p style="white-space:pre-wrap;background:#f4f4f5;padding:12px;border-radius:8px">${lead.message.replace(/</g,'&lt;')}</p><p><a href="/#admin">Open dashboard</a></p>`,
+    })
+    console.log('Alert sent to', to)
+  } catch (e) { console.error('Alert failed', e.message) }
+}
+
 // --- api ---
 app.get('/api/leads', async (req, res) => {
   try { res.json(await getLeads()) } catch (e) { res.status(500).json({ error: e.message }) }
@@ -93,7 +127,11 @@ app.get('/api/leads', async (req, res) => {
 app.post('/api/leads', async (req, res) => {
   const { name, email, message } = req.body || {}
   if (!name?.trim() || !email?.trim() || !message?.trim()) return res.status(400).json({ error: 'name, email, message required' })
-  try { res.status(201).json(await addLeadToStore({ name, email, message })) } catch (e) { res.status(500).json({ error: e.message }) }
+  try {
+    const lead = await addLeadToStore({ name, email, message })
+    res.status(201).json(lead)
+    sendLeadAlert(lead) // fire-and-forget, don't block response
+  } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
 app.delete('/api/leads/:id', async (req, res) => {
