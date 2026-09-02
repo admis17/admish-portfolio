@@ -12,8 +12,26 @@ export default function Admin() {
   const [q, setQ] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ name: '', email: '', message: '' })
+  const [stats, setStats] = useState({ total: 0, today: 0, week: 0, byDay: {} })
 
-  async function refresh() { setLeads(await getLeads()) }
+  async function refresh() {
+    const data = await getLeads()
+    setLeads(data)
+    try {
+      const r = await fetch('/api/stats')
+      if (r.ok) setStats(await r.json())
+      else {
+        // fallback compute locally if stats endpoint missing (dev with old server)
+        const now = new Date()
+        const today = data.filter(l => new Date(l.date).toDateString() === now.toDateString()).length
+        const week = data.filter(l => Date.now() - new Date(l.date) < 7*24*60*60*1000).length
+        const byDay = {}
+        for (let i=6;i>=0;i--) { const d=new Date(); d.setDate(d.getDate()-i); byDay[d.toISOString().slice(0,10)]=0 }
+        data.forEach(l => { const k=new Date(l.date).toISOString().slice(0,10); if(k in byDay) byDay[k]++ })
+        setStats({ total: data.length, today, week, byDay })
+      }
+    } catch {}
+  }
   useEffect(() => { refresh() }, [])
   useEffect(() => {
     if (!authed) return
@@ -116,6 +134,47 @@ export default function Admin() {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-6">
+        {/* Dashboard stats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <p className="text-sm text-zinc-500">Total leads</p>
+            <p className="text-3xl font-extrabold text-white mt-1">{stats.total}</p>
+            <p className="text-xs text-zinc-600 mt-1">All time</p>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <p className="text-sm text-zinc-500">Today</p>
+            <p className="text-3xl font-extrabold text-brand-400 mt-1">{stats.today}</p>
+            <p className="text-xs text-zinc-600 mt-1">{new Date().toLocaleDateString()}</p>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+            <p className="text-sm text-zinc-500">Last 7 days</p>
+            <p className="text-3xl font-extrabold text-white mt-1">{stats.week}</p>
+            <p className="text-xs text-zinc-600 mt-1">Rolling week</p>
+          </div>
+        </div>
+
+        {/* 7-day chart */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6">
+          <h3 className="text-sm font-semibold text-zinc-300 mb-4">Leads — last 7 days</h3>
+          {(() => {
+            const entries = Object.entries(stats.byDay || {})
+            const max = Math.max(1, ...entries.map(([,v])=>v))
+            return (
+              <div className="flex items-end gap-2 h-28">
+                {entries.map(([day, val]) => (
+                  <div key={day} className="flex-1 flex flex-col items-center gap-2">
+                    <div className="w-full flex justify-center" style={{height:'84px'}}>
+                      <div className="w-full max-w-12 bg-brand-400 rounded-t-lg transition-all" style={{height: `${(val/max)*100}%`, minHeight: val? '8px':'2px', opacity: val?1:0.2}} title={`${day}: ${val}`} />
+                    </div>
+                    <span className="text-[11px] text-zinc-500">{day.slice(5)}</span>
+                    <span className="text-xs font-bold text-white">{val}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+        </div>
+
         {showAdd && (
           <form onSubmit={handleAdd} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 mb-6 grid md:grid-cols-3 gap-4">
             <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Name" className="rounded-lg border border-zinc-700 bg-black text-white px-4 py-2.5 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-brand-400" />
@@ -192,7 +251,7 @@ export default function Admin() {
             </div>
           </>
         )}
-        <p className="text-xs text-zinc-600 mt-6">Storage: <span className="font-mono">/api/leads → data/leads.json</span> • Centralized — visible from any device • ponytail: ephemeral filesystem, swap to Postgres/DATABASE_URL if you redeploy often</p>
+        <p className="text-xs text-zinc-600 mt-6">Storage: <span className="font-mono">/api/leads → Postgres if DATABASE_URL else data/leads.json</span> • Antideploy auto-provisions Postgres • Dashboard polls every 2s</p>
       </div>
     </div>
   )
